@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Readers–Writers: live from Rust</title>
+<style>
+:root{--bg:#f4f2ec;--card:#fff;--ink:#1f1e1a;--mute:#6d6b63;--line:#e4e1d6;--table:#eadfc8;--rd:#2d9a58;--rdt:#d9efe1;--wr:#d6513f;--wrt:#f7dcd7;--hold:#e09a1f}
+@media (prefers-color-scheme: dark){:root{--bg:#15161a;--card:#1f2127;--ink:#ecebe6;--mute:#9a9a94;--line:#31343c;--table:#3a3326;--rd:#4cc57c;--rdt:#1d3b2b;--wr:#ef6a60;--wrt:#44221f;--hold:#f0b13a}}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:0 0 2px}
+.sub{color:var(--mute);margin:0 0 14px;font-size:13px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:14px}
+.card h2{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin:0 0 8px;font-weight:600}
+.controls{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:13px}
+button{font:inherit;font-weight:600;padding:6px 14px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+label{display:flex;align-items:center;gap:6px;color:var(--mute)}
+#conn{margin-left:auto;font-size:12px;color:var(--mute)}
+svg{width:100%;height:auto;display:block;max-width:440px;margin:0 auto}
+.stn{fill:var(--table);transition:fill .25s}.stn.r{fill:var(--rdt)}.stn.w{fill:var(--wrt)}
+.sl{fill:var(--mute);font-size:12px;font-weight:600}
+.ss{fill:var(--mute);font-size:12px;text-anchor:end}.ss.bad{fill:var(--wr);font-weight:700}
+.tc{transition:transform .4s ease,opacity .3s}.tc.dn{opacity:.4}
+.tcc.R{fill:var(--rd)}.tcc.W{fill:var(--wr)}
+.tc.hd .tcc{stroke:var(--hold);stroke-width:4}
+.tt{fill:#fff;font-size:11px;font-weight:700;text-anchor:middle}
+table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:5px 4px;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--mute);font-weight:600;font-size:12px}
+.chip{display:inline-block;padding:2px 10px;border-radius:99px;color:#fff;font-weight:700;font-size:12px;margin:0 5px 4px 0}
+.chip.R{background:var(--rd)}.chip.W{background:var(--wr)}
+.muted{color:var(--mute);font-size:13px}
+#log{list-style:none;margin:0;padding:0;font-size:12.5px;color:var(--mute);max-height:170px;overflow:auto}
+#log li{padding:2px 0;border-bottom:1px dashed var(--line)}
+#log li.v{color:var(--wr);font-weight:600}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin:0 4px 0 10px}
+.banner{margin-top:8px;font-weight:600;color:var(--rd);font-size:13px}.banner.bad{color:var(--wr)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Readers–Writers: live from Rust <span id="mode" class="muted"></span></h1>
+  <p class="sub">Every event here is emitted by the real Rust threads and streamed to this page. Chips move when a thread blocks on, or passes, the turnstile, the read_count lock or wrt. Waits are measured by Rust.</p>
+
+  <div class="card controls">
+    <button id="pp">Pause</button>
+    <button id="rs">Replay</button>
+    <label>Speed <input id="sp" type="range" min="0.1" max="2" step="0.05" value="0.25"> <span id="spv">0.25x</span></label>
+    <span id="conn">connecting…</span>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Protocol</h2>
+      <svg id="stage" viewBox="0 0 440 426" role="img" aria-label="Threads moving through turnstile, read_count lock, wrt and the resource"></svg>
+      <div class="muted" style="text-align:center">
+        <span class="dot" style="background:var(--rd)"></span>reader
+        <span class="dot" style="background:var(--wr)"></span>writer
+        <span class="dot" style="background:var(--hold)"></span>ring = holds the gate or lock while waiting
+      </div>
+    </div>
+    <div>
+      <div class="card"><h2>Waiting (longest first)</h2><div id="q"></div></div>
+      <div class="card">
+        <h2>Stats <span id="clock" style="text-transform:none;letter-spacing:0"></span></h2>
+        <table>
+          <thead><tr><th>thread</th><th>state</th><th>ops</th><th>avg wait (ms)</th><th>max wait (ms)</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div id="tot" class="muted" style="margin-top:8px"></div>
+        <div id="fin" class="banner"></div>
+      </div>
+      <div class="card"><h2>Event log</h2><ul id="log"></ul></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const ST={rest:{y:8,h:60,t:'Resting / done'},gate:{y:80,h:60,t:'turnstile'},lock:{y:152,h:60,t:'read_count lock'},wrt:{y:224,h:60,t:'wrt semaphore'},cs:{y:296,h:122,t:'Resource'}};
+const LBL={rest:'resting',gate:'at turnstile',lock:'at lock',wrt:'waiting for wrt',cs:'in resource',done:'done'};
+const $=id=>document.getElementById(id);
+let S,ev=[],ni=0,clock=0,have=false,es=null,speed=0.25,running=true;
+
+/* ---------- scene ---------- */
+const svg=$('stage'),NS='http://www.w3.org/2000/svg';
+function el(n,a,p,tx){const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);(p||svg).appendChild(e);if(tx!==undefined)e.textContent=tx;return e;}
+const sr={},ss={};
+for(const k in ST){const s=ST[k];sr[k]=el('rect',{x:8,y:s.y,width:424,height:s.h,rx:10,class:'stn'});
+  el('text',{x:20,y:s.y+17,class:'sl'},null,s.t);ss[k]=el('text',{x:420,y:s.y+17,class:'ss'});}
+const tl=el('g',{});
+
+function initState(){
+  S={cfg:null,th:[],log:[],fin:false,res:0,viol:0,maxr:0,reads:0,writes:0,sum:null};
+  tl.innerHTML='';ev=[];ni=0;have=false;
+}
+const say=(ts,m,c)=>{S.log.unshift({s:ts+' · '+m,c:c||''});if(S.log.length>40)S.log.length=40;};
+const nr=()=>S.th.filter(t=>t.k==='R'&&t.loc==='cs').length;
+
+function apply(e){
+  const ts=(e.t/1000).toFixed(2)+'s';
+  if(e.e==='config'){
+    S.cfg=e;
+    for(const k of ['R','W'])for(let i=1;i<=(k==='R'?e.readers:e.writers);i++){
+      const t={k,id:i,n:k+i,loc:'rest',h:'',since:0,ops:0,ent:0,tw:0,mw:0};
+      t.g=el('g',{class:'tc'},tl);el('circle',{r:15,class:'tcc '+k},t.g);el('text',{y:4,class:'tt'},t.g,t.n);
+      S.th.push(t);
+    }
+    $('mode').textContent='· '+(e.fair?'fair (turnstile)':'basic (reader priority)')+', '+e.readers+' readers, '+e.writers+' writers';
+    return;
+  }
+  if(e.e==='end'){S.sum=e;S.fin=true;return;}
+  if(e.e==='viol'){S.viol++;say(ts,'INVARIANT VIOLATED by '+e.who+': '+e.msg,'v');return;}
+  const t=S.th.find(x=>x.k===e.k&&x.id===e.id);if(!t)return;
+  switch(e.e){
+    case 'arrive': t.loc=S.cfg.fair?'gate':(t.k==='R'?'lock':'wrt');t.h='';t.since=e.t;say(ts,t.n+' arrived');break;
+    case 'stage': t.loc=e.s;t.h=e.h||'';break;
+    case 'enter': t.loc='cs';t.h='';t.ent++;t.tw+=e.w;t.mw=Math.max(t.mw,e.w);S.maxr=Math.max(S.maxr,nr());
+      say(ts,t.n+' entered ('+(t.k==='R'?nr()+' reading':'alone')+', waited '+e.w+' ms)');break;
+    case 'leave': t.loc='rest';t.ops++;if(t.k==='W'){S.res=e.v;S.writes++;}else S.reads++;
+      say(ts,t.n+(t.k==='R'?' read ':' wrote ')+e.v+' and left');break;
+    case 'done': t.loc='done';say(ts,t.n+' is done');break;
+  }
+}
+
+function render(){
+  const cfg=S.cfg;
+  const by={};
+  S.th.forEach(t=>{const k=t.loc==='done'?'rest':t.loc;(by[k]=by[k]||[]).push(t);});
+  for(const k in by){const s=ST[k],a=by[k],step=Math.min(40,380/a.length);
+    a.forEach((t,i)=>{t.g.style.transform='translate('+(34+i*step)+'px,'+(s.y+s.h-24)+'px)';
+      t.g.setAttribute('class','tc'+(t.loc==='done'?' dn':'')+(t.h?' hd':''));});}
+  const cs=S.th.filter(t=>t.loc==='cs'),r=cs.filter(t=>t.k==='R').length,w=cs.length-r;
+  const gClosed=S.th.some(t=>t.h==='turnstile'),lHeld=S.th.some(t=>t.h==='lock');
+  ss.gate.textContent=!cfg?'':cfg.fair?(gClosed?'closed by a waiting writer':'open'):'off (basic mode)';
+  ss.gate.setAttribute('class','ss'+(gClosed?' bad':''));
+  ss.lock.textContent=lHeld?'held by first reader, who waits for wrt':'free';
+  ss.wrt.textContent=cs.length?'taken':'free';
+  ss.cs.textContent='value '+S.res+' · '+(w?'1 writing':r?r+' reading':'empty');
+  sr.cs.setAttribute('class','stn '+(w?'w':r?'r':''));
+
+  const wt=S.th.filter(t=>['gate','lock','wrt'].includes(t.loc)).sort((a,b)=>a.since-b.since);
+  $('q').innerHTML=wt.length?wt.map(t=>'<span class="chip '+t.k+'">'+t.n+' · '+LBL[t.loc].replace('waiting for ','')+' · '+Math.max(0,clock-t.since).toFixed(0)+' ms</span>').join(''):'<span class="muted">nobody</span>';
+  $('rows').innerHTML=S.th.map(t=>'<tr><td>'+t.n+'</td><td>'+LBL[t.loc]+'</td><td>'+t.ops+'</td><td>'+(t.ent?(t.tw/t.ent).toFixed(1):'0.0')+'</td><td>'+t.mw+'</td></tr>').join('');
+  $('tot').textContent='reads '+S.reads+' · writes '+S.writes+' · max concurrent readers '+S.maxr+' · violations '+S.viol;
+  $('clock').textContent=have?' · '+(clock/1000).toFixed(2)+'s (Rust time)':'';
+  const done=S.fin&&ni>=ev.length,m=S.sum;
+  $('fin').className='banner'+(done&&m.viol?' bad':'');
+  $('fin').textContent=done?'Rust summary: '+m.time+' ms · '+m.reads+' reads / '+m.writes+' writes · max readers '+m.maxr+' · reader wait avg/max '+m.ra+'/'+m.rm+' ms · writer wait avg/max '+m.wa+'/'+m.wm+' ms · '+(m.viol?m.viol+' VIOLATION(S)':'invariants OK'):'';
+  $('log').innerHTML=S.log.slice(0,12).map(l=>'<li class="'+l.c+'">'+l.s+'</li>').join('');
+}
+
+/* ---------- connection to the Rust server ---------- */
+function connect(){
+  if(es)es.close();
+  initState();
+  $('conn').textContent='connecting…';
+  es=new EventSource('/events');
+  es.onopen=()=>{$('conn').textContent='● connected to Rust';};
+  es.onmessage=m=>{
+    const e=JSON.parse(m.data);
+    if(!have){have=true;clock=e.t;}
+    ev.push(e);
+    if(e.e==='end'){es.close();$('conn').textContent='● run complete';}
+  };
+  es.onerror=()=>{if(es&&es.readyState===2||!have)$('conn').textContent='✕ no connection: is the Rust program running? Open the address it prints (this page must be served by it)';};
+}
+
+let last=performance.now();
+function loop(ts){
+  const dt=ts-last;last=ts;
+  if(running&&have)clock+=dt*speed;
+  while(ni<ev.length&&ev[ni].t<=clock)apply(ev[ni++]);
+  render();
+  requestAnimationFrame(loop);
+}
+$('pp').onclick=()=>{running=!running;$('pp').textContent=running?'Pause':'Resume';};
+$('rs').onclick=()=>{running=true;$('pp').textContent='Pause';connect();};
+$('sp').oninput=e=>{speed=+e.target.value;$('spv').textContent=speed+'x';};
+connect();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
