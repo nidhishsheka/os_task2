@@ -156,15 +156,140 @@ number of opportunities to eat.
 ## 📊 Sample Output
 
 ``` text
+Philosopher 1 is thinking
+Philosopher 2 is thinking
+Philosopher 3 is thinking
+Philosopher 0 is thinking
+Philosopher 2 is hungry
+Philosopher 2 picked up chopstick 2
+Philosopher 2 picked up chopstick 3
+Philosopher 2 is EATING (meal 1/5)
+Philosopher 1 is hungry
+Philosopher 0 is hungry
+Philosopher 3 is hungry
+Philosopher 2 finished, putting down chopsticks 2 and 3
+Philosopher 2 is thinking
+Philosopher 1 picked up chopstick 1
+Philosopher 1 picked up chopstick 2
+Philosopher 1 is EATING (meal 1/5)
+Philosopher 2 is hungry
+Philosopher 1 finished, putting down chopsticks 1 and 2
+Philosopher 1 is thinking
+Philosopher 0 picked up chopstick 0
+Philosopher 0 picked up chopstick 1
+Philosopher 0 is EATING (meal 1/5)
+Philosopher 1 is hungry
+Philosopher 0 finished, putting down chopsticks 0 and 1
+Philosopher 0 is thinking
+Philosopher 3 picked up chopstick 3
+Philosopher 3 picked up chopstick 0
+Philosopher 3 is EATING (meal 1/5)
+Philosopher 0 is hungry
+Philosopher 3 finished, putting down chopsticks 3 and 0
+Philosopher 3 is thinking
+Philosopher 2 picked up chopstick 2
+Philosopher 2 picked up chopstick 3
+Philosopher 2 is EATING (meal 2/5)
+Philosopher 3 is hungry
+Philosopher 2 finished, putting down chopsticks 2 and 3
+Philosopher 2 is thinking
+Philosopher 1 picked up chopstick 1
+Philosopher 1 picked up chopstick 2
+Philosopher 1 is EATING (meal 2/5)
+Philosopher 2 is hungry
+Philosopher 1 finished, putting down chopsticks 1 and 2
+Philosopher 1 is thinking
+Philosopher 0 picked up chopstick 0
+Philosopher 0 picked up chopstick 1
+Philosopher 0 is EATING (meal 2/5)
+Philosopher 1 is hungry
+Philosopher 0 finished, putting down chopsticks 0 and 1
+Philosopher 0 is thinking
+Philosopher 3 picked up chopstick 3
+Philosopher 3 picked up chopstick 0
+Philosopher 3 is EATING (meal 2/5)
+Philosopher 0 is hungry
+Philosopher 3 finished, putting down chopsticks 3 and 0
+Philosopher 3 is thinking
+Philosopher 2 picked up chopstick 2
+Philosopher 2 picked up chopstick 3
+Philosopher 2 is EATING (meal 3/5)
+Philosopher 3 is hungry
+Philosopher 2 finished, putting down chopsticks 2 and 3
+Philosopher 2 is thinking
+Philosopher 1 picked up chopstick 1
+Philosopher 1 picked up chopstick 2
+Philosopher 1 is EATING (meal 3/5)
+Philosopher 2 is hungry
+Philosopher 1 finished, putting down chopsticks 1 and 2
+Philosopher 1 is thinking
+Philosopher 0 picked up chopstick 0
+Philosopher 0 picked up chopstick 1
+Philosopher 0 is EATING (meal 3/5)
+Philosopher 1 is hungry
+Philosopher 0 finished, putting down chopsticks 0 and 1
+Philosopher 3 picked up chopstick 3
+Philosopher 3 picked up chopstick 0
+Philosopher 3 is EATING (meal 3/5)
+Philosopher 0 is thinking
+Philosopher 0 is hungry
+Philosopher 3 finished, putting down chopsticks 3 and 0
+Philosopher 3 is thinking
+Philosopher 2 picked up chopstick 2
+Philosopher 2 picked up chopstick 3
+Philosopher 2 is EATING (meal 4/5)
+Philosopher 3 is hungry
+Philosopher 2 finished, putting down chopsticks 2 and 3
+Philosopher 2 is thinking
+Philosopher 1 picked up chopstick 1
+Philosopher 1 picked up chopstick 2
+Philosopher 1 is EATING (meal 4/5)
+Philosopher 2 is hungry
+Philosopher 1 finished, putting down chopsticks 1 and 2
+Philosopher 1 is thinking
+Philosopher 0 picked up chopstick 0
+Philosopher 0 picked up chopstick 1
+Philosopher 0 is EATING (meal 4/5)
+Philosopher 1 is hungry
+Philosopher 0 finished, putting down chopsticks 0 and 1
+Philosopher 0 is thinking
+Philosopher 3 picked up chopstick 3
+Philosopher 3 picked up chopstick 0
+Philosopher 3 is EATING (meal 4/5)
+Philosopher 0 is hungry
+Philosopher 3 finished, putting down chopsticks 3 and 0
+Philosopher 3 is thinking
+Philosopher 2 picked up chopstick 2
+Philosopher 2 picked up chopstick 3
+Philosopher 2 is EATING (meal 5/5)
+Philosopher 3 is hungry
+Philosopher 2 finished, putting down chopsticks 2 and 3
+Philosopher 2 is done
+Philosopher 1 picked up chopstick 1
+Philosopher 1 picked up chopstick 2
+Philosopher 1 is EATING (meal 5/5)
+Philosopher 1 finished, putting down chopsticks 1 and 2
+Philosopher 1 is done
+Philosopher 0 picked up chopstick 0
+Philosopher 0 picked up chopstick 1
+Philosopher 0 is EATING (meal 5/5)
+Philosopher 0 finished, putting down chopsticks 0 and 1
+Philosopher 0 is done
+Philosopher 3 picked up chopstick 3
+Philosopher 3 picked up chopstick 0
+Philosopher 3 is EATING (meal 5/5)
+Philosopher 3 finished, putting down chopsticks 3 and 0
+Philosopher 3 is done
+
+All philosophers have finished dining.
+
 === FIFO-fair waiter ===
-
 phil      meals    avg wait (ms)    max wait (ms)
-0             5             XX.XX          XX.XX
-1             5             XX.XX          XX.XX
-2             5             XX.XX          XX.XX
-3             5             XX.XX          XX.XX
-
-fairness (min/max meals): 1.000
+0             5           349.10           361.84
+1             5           318.80           364.69
+2             5           287.57           360.28
+3             5           378.66           459.50
+fairness (min/max meals): 1.000  (1.0 = perfectly even)
 ```
 
 Exact waiting times may vary between executions because thread
