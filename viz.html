@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dining Philosophers: live from Rust</title>
+<style>
+:root{--bg:#f4f2ec;--card:#fff;--ink:#1f1e1a;--mute:#6d6b63;--line:#e4e1d6;--table:#eadfc8;--wood:#a8753a;--think:#6f86ad;--hungry:#e09a1f;--eat:#2d9a58;--done:#9a988f}
+@media (prefers-color-scheme: dark){:root{--bg:#15161a;--card:#1f2127;--ink:#ecebe6;--mute:#9a9a94;--line:#31343c;--table:#3a3326;--wood:#c89150;--think:#8ea3c9;--hungry:#f0b13a;--eat:#4cc57c;--done:#6d6c66}}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:0 0 2px}
+.sub{color:var(--mute);margin:0 0 14px;font-size:13px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:14px}
+.card h2{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin:0 0 8px;font-weight:600}
+.controls{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:13px}
+button{font:inherit;font-weight:600;padding:6px 14px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+label{display:flex;align-items:center;gap:6px;color:var(--mute)}
+#conn{margin-left:auto;font-size:12px;color:var(--mute)}
+svg{width:100%;height:auto;display:block;max-width:440px;margin:0 auto}
+.tbl{fill:var(--table)}
+.wt{fill:var(--mute);font-size:12px;text-anchor:middle;font-weight:600}
+.chop{stroke:var(--wood);stroke-width:5;stroke-linecap:round;transition:transform .35s ease}
+.pc{fill:var(--card);stroke-width:4;transition:stroke .2s}
+.thinking .pc{stroke:var(--think)}.hungry .pc{stroke:var(--hungry)}.eating .pc{stroke:var(--eat)}.done .pc{stroke:var(--done)}
+.ring{fill:none;stroke-width:3;opacity:0;transform-box:fill-box;transform-origin:center}
+.hungry .ring{stroke:var(--hungry);animation:pulse 1s infinite}
+.eating .ring{stroke:var(--eat);animation:pulse 1.4s infinite}
+@keyframes pulse{0%{opacity:.8;transform:scale(1)}100%{opacity:0;transform:scale(1.35)}}
+.em{font-size:20px;text-anchor:middle}
+.pl{font-size:11px;text-anchor:middle;fill:var(--mute);font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:5px 4px;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--mute);font-weight:600;font-size:12px}
+.chip{display:inline-block;padding:2px 10px;border-radius:99px;background:var(--hungry);color:#1f1e1a;font-weight:700;font-size:12px;margin-right:5px}
+.muted{color:var(--mute);font-size:13px}
+#log{list-style:none;margin:0;padding:0;font-size:12.5px;color:var(--mute);max-height:170px;overflow:auto}
+#log li{padding:2px 0;border-bottom:1px dashed var(--line)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin:0 4px 0 10px}
+.banner{margin-top:8px;font-weight:600;color:var(--eat);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Dining Philosophers: live from Rust</h1>
+  <p class="sub">Every event here is emitted by the real Rust threads (FIFO-fair waiter) and streamed to this page. Times and waits are measured by Rust.</p>
+
+  <div class="card controls">
+    <button id="pp">Pause</button>
+    <button id="rs">Replay</button>
+    <label>Speed <input id="sp" type="range" min="0.1" max="2" step="0.05" value="0.25"> <span id="spv">0.25x</span></label>
+    <span id="conn">connecting…</span>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Table</h2>
+      <svg id="stage" viewBox="0 0 420 420" role="img" aria-label="Philosophers around a table"></svg>
+      <div class="muted" style="text-align:center">
+        <span class="dot" style="background:var(--think)"></span>thinking
+        <span class="dot" style="background:var(--hungry)"></span>hungry
+        <span class="dot" style="background:var(--eat)"></span>eating
+        <span class="dot" style="background:var(--done)"></span>done
+      </div>
+    </div>
+    <div>
+      <div class="card"><h2>Waiter queue (first in line on the left)</h2><div id="q"></div></div>
+      <div class="card">
+        <h2>Stats <span id="clock" style="text-transform:none;letter-spacing:0"></span></h2>
+        <table>
+          <thead><tr><th>phil</th><th>state</th><th>meals</th><th>avg wait (ms)</th><th>max wait (ms)</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div id="fair" class="muted" style="margin-top:8px"></div>
+        <div id="fin" class="banner"></div>
+      </div>
+      <div class="card"><h2>Event log</h2><ul id="log"></ul></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const N=4, ang=i=>-90+90*i;
+const EM={thinking:'💭',hungry:'😩',eating:'🍜',done:'✅'};
+const $=id=>document.getElementById(id);
+let S, ev=[], ni=0, base=0, clock=0, have=false, es=null, speed=0.25, running=true;
+
+function initState(){
+  S={q:[],hold:Array(N).fill(null),log:[],fin:false,
+     ph:Array.from({length:N},(_,id)=>({id,st:'thinking',since:0,meals:0,tw:0,mw:0}))};
+  ev=[];ni=0;have=false;
+}
+const say=(ts,m)=>{S.log.unshift(ts+' · '+m);if(S.log.length>40)S.log.length=40;};
+
+function apply(e){
+  const p=S.ph[e.p], r=(e.p+1)%N, ts=((e.t-base)/1000).toFixed(2)+'s';
+  switch(e.e){
+    case 'think': p.st='thinking'; break;
+    case 'hungry': p.st='hungry';p.since=e.t;S.q.push(e.p);say(ts,'P'+e.p+' is hungry, joins the queue');break;
+    case 'eat':
+      S.q=S.q.filter(x=>x!==e.p);p.st='eating';p.meals=e.m;p.tw+=e.w;p.mw=Math.max(p.mw,e.w);
+      S.hold[e.p]=e.p;S.hold[r]=e.p;
+      say(ts,'P'+e.p+' picked up chopsticks '+e.p+' & '+r+', EATING (meal '+e.m+', waited '+e.w.toFixed(1)+' ms)');break;
+    case 'put': S.hold[e.p]=null;S.hold[r]=null;p.st='thinking';say(ts,'P'+e.p+' put down chopsticks '+e.p+' & '+r);break;
+    case 'done': p.st='done';say(ts,'P'+e.p+' is done');break;
+    case 'end': S.fin=true;break;
+  }
+}
+
+/* ---------- scene ---------- */
+const svg=$('stage'), NS='http://www.w3.org/2000/svg';
+function el(n,a,p){const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);(p||svg).appendChild(e);return e;}
+el('circle',{cx:210,cy:210,r:105,class:'tbl'});
+el('text',{x:210,y:215,class:'wt'}).textContent='Waiter';
+const chops=[...Array(N)].map(()=>el('line',{x1:52,y1:0,x2:135,y2:0,class:'chop'}));
+const pg=[...Array(N)].map((_,i)=>{
+  const a=ang(i)*Math.PI/180;
+  const g=el('g',{class:'ph thinking',transform:'translate('+(210+160*Math.cos(a))+' '+(210+160*Math.sin(a))+')'});
+  el('circle',{r:36,class:'ring'},g);el('circle',{r:32,class:'pc'},g);
+  const e=el('text',{y:2,class:'em'},g);
+  el('text',{y:20,class:'pl'},g).textContent='P'+i;
+  return {g,e};
+});
+function chopAngle(k){
+  const rest=ang(k)-45,h=S.hold[k];
+  if(h===null)return rest;
+  let a=ang(h)+(k===h?-10:10);
+  a+=360*Math.round((rest-a)/360);
+  return a;
+}
+
+function render(){
+  S.ph.forEach((p,i)=>{pg[i].g.setAttribute('class','ph '+p.st);pg[i].e.textContent=EM[p.st];});
+  chops.forEach((c,k)=>{c.style.transform='translate(210px,210px) rotate('+chopAngle(k)+'deg)';});
+  $('q').innerHTML=S.q.length?S.q.map(i=>'<span class="chip">P'+i+'</span>').join(''):'<span class="muted">empty</span>';
+  $('rows').innerHTML=S.ph.map(p=>{
+    const st=p.st==='hungry'?'hungry '+Math.max(0,clock-p.since).toFixed(0)+' ms':p.st;
+    return '<tr><td>P'+p.id+'</td><td>'+st+'</td><td>'+p.meals+'</td><td>'+(p.meals?(p.tw/p.meals).toFixed(2):'0.00')+'</td><td>'+p.mw.toFixed(2)+'</td></tr>';
+  }).join('');
+  const m=S.ph.map(p=>p.meals),mx=Math.max(...m),mn=Math.min(...m);
+  $('fair').textContent='fairness (min/max meals): '+(mx?(mn/mx).toFixed(3):'0.000')+'  (1.0 = perfectly even)';
+  $('clock').textContent=have?' · '+((clock-base)/1000).toFixed(2)+'s (Rust time)':'';
+  $('fin').textContent=S.fin&&ni>=ev.length?'All philosophers have finished dining.':'';
+  $('log').innerHTML=S.log.slice(0,12).map(l=>'<li>'+l+'</li>').join('');
+}
+
+/* ---------- connection to the Rust server ---------- */
+function connect(){
+  if(es)es.close();
+  initState();
+  $('conn').textContent='connecting…';
+  es=new EventSource('/events');
+  es.onopen=()=>{$('conn').textContent='● connected to Rust';};
+  es.onmessage=m=>{
+    const e=JSON.parse(m.data);
+    if(!have){have=true;base=clock=e.t;}
+    ev.push(e);
+    if(e.e==='end'){es.close();$('conn').textContent='● run complete';}
+  };
+  es.onerror=()=>{if(es&&es.readyState===2||!have)$('conn').textContent='✕ no connection: is the Rust program running?';};
+}
+
+let last=performance.now();
+function loop(ts){
+  const dt=ts-last;last=ts;
+  if(running&&have)clock+=dt*speed;
+  while(ni<ev.length&&ev[ni].t<=clock)apply(ev[ni++]);
+  render();
+  requestAnimationFrame(loop);
+}
+$('pp').onclick=()=>{running=!running;$('pp').textContent=running?'Pause':'Resume';};
+$('rs').onclick=()=>{running=true;$('pp').textContent='Pause';connect();};
+$('sp').oninput=e=>{speed=+e.target.value;$('spv').textContent=speed+'x';};
+connect();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
