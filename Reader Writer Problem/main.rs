@@ -12,7 +12,6 @@ const RESET: &str = "\x1b[0m";
 
 const PAGE: &str = include_str!("rw_viz.html");
 
-
 struct Semaphore {
     count: Mutex<usize>,
     cv: Condvar,
@@ -20,7 +19,10 @@ struct Semaphore {
 
 impl Semaphore {
     fn new(n: usize) -> Self {
-        Semaphore { count: Mutex::new(n), cv: Condvar::new() }
+        Semaphore {
+            count: Mutex::new(n),
+            cv: Condvar::new(),
+        }
     }
 
     fn wait(&self) {
@@ -42,9 +44,9 @@ struct Shared {
     fair: bool,
 
     // synchronization
-    turnstile: Semaphore,   
-    wrt: Semaphore,        
-    read_count: Mutex<u32>, 
+    turnstile: Semaphore,
+    wrt: Semaphore,
+    read_count: Mutex<u32>,
     resource: AtomicU32,
 
     active_readers: AtomicU32,
@@ -80,7 +82,9 @@ impl Shared {
     fn violation(&self, who: &str, what: &str) {
         self.violations.fetch_add(1, SeqCst);
         eprintln!("{BOLD}{RED}INVARIANT VIOLATED by {who}: {what}{RESET}");
-        self.emit(&format!("\"e\":\"viol\",\"who\":\"{who}\",\"msg\":\"{what}\""));
+        self.emit(&format!(
+            "\"e\":\"viol\",\"who\":\"{who}\",\"msg\":\"{what}\""
+        ));
     }
 
     fn emit(&self, body: &str) {
@@ -197,7 +201,6 @@ fn writer(id: u32, s: Arc<Shared>, iters: u32) {
     }
     s.ev("done", 'W', id, "");
 }
-
 
 fn handle(mut stream: TcpStream, s: Arc<Shared>) {
     let mut buf = [0u8; 2048];
