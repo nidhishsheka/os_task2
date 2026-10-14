@@ -357,4 +357,6 @@ More importantly, the program makes the synchronization behaviour **visible** �
 
 B.Tech — Information Science Engineering
 
+[GitHub](https://github.com/nidhishsheka)
+
 > *Operating Systems assignment — Readers–Writers Problem*
