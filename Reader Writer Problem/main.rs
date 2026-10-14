@@ -1,18 +1,3 @@
-// Readers-writers with semaphores, instrumented, plus a live visualization server.
-//
-// Usage (keep main.rs and rw_viz.html in the same folder):
-//   rustc main.rs -o main
-//   ./main [readers] [writers] [iterations] [--basic] [--port=8080]
-//   then open http://127.0.0.1:8080
-//
-// Defaults: 3 readers, 2 writers, 3 iterations each, port 8080.
-// --basic disables the turnstile (reader-priority version, writers can starve).
-//
-// The program runs the experiment, records every step as a JSON event, and serves
-// them to the page over Server-Sent Events (/events). Events are buffered, so the
-// page can connect before, during or after the run, and "Replay" gets the full history.
-// std only, no crates. Press Ctrl+C to stop the server.
-
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::SeqCst};
@@ -27,7 +12,7 @@ const RESET: &str = "\x1b[0m";
 
 const PAGE: &str = include_str!("rw_viz.html");
 
-/// Counting semaphore built from a Mutex + Condvar (std has no semaphore).
+
 struct Semaphore {
     count: Mutex<usize>,
     cv: Condvar,
@@ -57,14 +42,11 @@ struct Shared {
     fair: bool,
 
     // synchronization
-    turnstile: Semaphore,   // fairness gate (only used when fair)
-    wrt: Semaphore,         // exclusive access for writers
-    read_count: Mutex<u32>, // lock protecting the reader count
-
-    // the shared resource
+    turnstile: Semaphore,   
+    wrt: Semaphore,        
+    read_count: Mutex<u32>, 
     resource: AtomicU32,
 
-    // instrumentation
     active_readers: AtomicU32,
     active_writers: AtomicU32,
     max_readers: AtomicU32,
@@ -77,14 +59,12 @@ struct Shared {
     writer_wait_max: AtomicU64,
     start: Instant,
 
-    // event stream for the visualization
     events: Mutex<Vec<String>>,
     ev_cv: Condvar,
 }
 
 impl Shared {
     fn log(&self, color: &str, who: &str, msg: &str) {
-        // a single println! is one atomic write, so lines never interleave
         println!(
             "[{:>5}ms] {}{:<9} {:<14}{} readers={} writers={}",
             self.start.elapsed().as_millis(),
@@ -103,7 +83,6 @@ impl Shared {
         self.emit(&format!("\"e\":\"viol\",\"who\":\"{who}\",\"msg\":\"{what}\""));
     }
 
-    /// Append one JSON event (stamped with ms since start) and wake the streamers.
     fn emit(&self, body: &str) {
         let t = self.start.elapsed().as_secs_f64() * 1000.0;
         let json = format!("{{\"t\":{t:.1},{body}}}");
@@ -111,8 +90,6 @@ impl Shared {
         self.ev_cv.notify_all();
     }
 
-    /// Thread event: kind `e`, thread type `k` ('R' or 'W'), id, plus extra JSON fields
-    /// (each starting with a comma).
     fn ev(&self, e: &str, k: char, id: u32, extra: &str) {
         self.emit(&format!("\"e\":\"{e}\",\"k\":\"{k}\",\"id\":{id}{extra}"));
     }
@@ -125,21 +102,18 @@ fn reader(id: u32, s: Arc<Shared>, iters: u32) {
         s.ev("arrive", 'R', id, "");
         s.log(GREEN, &who, "arrived");
 
-        // turnstile: pass straight through, but block if a writer is waiting
         if s.fair {
             s.turnstile.wait();
             s.turnstile.signal();
             s.ev("stage", 'R', id, ",\"s\":\"lock\"");
         }
 
-        // entry section
         {
             let mut rc = s.read_count.lock().unwrap();
             *rc += 1;
             if *rc == 1 {
-                // first reader holds the read_count lock while it waits for wrt
                 s.ev("stage", 'R', id, ",\"s\":\"wrt\",\"h\":\"lock\"");
-                s.wrt.wait(); // first reader locks out writers
+                s.wrt.wait();
             }
         }
 
@@ -147,7 +121,6 @@ fn reader(id: u32, s: Arc<Shared>, iters: u32) {
         s.reader_wait_sum.fetch_add(waited, SeqCst);
         s.reader_wait_max.fetch_max(waited, SeqCst);
 
-        // critical section
         let n = s.active_readers.fetch_add(1, SeqCst) + 1;
         s.max_readers.fetch_max(n, SeqCst);
         if s.active_writers.load(SeqCst) != 0 {
@@ -167,12 +140,11 @@ fn reader(id: u32, s: Arc<Shared>, iters: u32) {
         s.ev("leave", 'R', id, &format!(",\"v\":{v}"));
         s.log(GREEN, &who, &format!("left (read {v})"));
 
-        // exit section
         {
             let mut rc = s.read_count.lock().unwrap();
             *rc -= 1;
             if *rc == 0 {
-                s.wrt.signal(); // last reader lets writers in
+                s.wrt.signal();
             }
         }
 
@@ -189,19 +161,18 @@ fn writer(id: u32, s: Arc<Shared>, iters: u32) {
         s.log(RED, &who, "arrived");
 
         if s.fair {
-            s.turnstile.wait(); // close the gate to new readers
+            s.turnstile.wait();
             s.ev("stage", 'W', id, ",\"s\":\"wrt\",\"h\":\"turnstile\"");
         }
-        s.wrt.wait(); // wait for readers to drain / other writer to finish
+        s.wrt.wait();
         if s.fair {
-            s.turnstile.signal(); // reopen the gate; we already hold wrt
+            s.turnstile.signal();
         }
 
         let waited = arrived.elapsed().as_millis() as u64;
         s.writer_wait_sum.fetch_add(waited, SeqCst);
         s.writer_wait_max.fetch_max(waited, SeqCst);
 
-        // critical section
         let w = s.active_writers.fetch_add(1, SeqCst) + 1;
         if w != 1 {
             s.violation(&who, "more than one writer active");
@@ -227,7 +198,6 @@ fn writer(id: u32, s: Arc<Shared>, iters: u32) {
     s.ev("done", 'W', id, "");
 }
 
-// ---------- tiny HTTP server (std only) ----------
 
 fn handle(mut stream: TcpStream, s: Arc<Shared>) {
     let mut buf = [0u8; 2048];
@@ -255,7 +225,6 @@ fn handle(mut stream: TcpStream, s: Arc<Shared>) {
     }
 }
 
-/// Server-Sent Events: replay everything recorded so far, then follow new events.
 fn stream_events(mut stream: TcpStream, s: Arc<Shared>) {
     let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
     if stream.write_all(head.as_bytes()).is_err() {
@@ -280,7 +249,7 @@ fn stream_events(mut stream: TcpStream, s: Arc<Shared>) {
             return;
         }
         if batch.last().map_or(false, |e| e.contains("\"e\":\"end\"")) {
-            return; // run finished; closing ends this stream
+            return;
         }
     }
 }
@@ -324,7 +293,6 @@ fn main() {
         ev_cv: Condvar::new(),
     });
 
-    // start the web server first so the page can connect at any time
     let listener = TcpListener::bind(("127.0.0.1", port)).unwrap_or_else(|e| {
         eprintln!("cannot listen on port {port}: {e} (try --port=8081)");
         std::process::exit(1);
@@ -359,7 +327,6 @@ fn main() {
         h.join().unwrap();
     }
 
-    // summary
     let total_reads = shared.total_reads.load(SeqCst);
     let total_writes = shared.total_writes.load(SeqCst);
     let reads = (total_reads as u64).max(1);
